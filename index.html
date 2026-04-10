@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Collatz Explorer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #1a1a2e; color: #c8c8d4; font-family: 'SF Mono', monospace; margin: 0; padding: 24px; }
+    h1 { color: #e0e0ec; font-weight: 400; font-size: 1.4em; margin: 0 0 16px; }
+    .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    input, button { background: #16213e; color: #c8c8d4; border: 1px solid #334; padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 0.85em; }
+    button { cursor: pointer; }
+    button:hover { border-color: #668; }
+    label { font-size: 0.85em; color: #888; }
+    input[type="number"] { width: 80px; text-align: center; }
+    .info { font-size: 0.75em; color: #556; margin-bottom: 8px; }
+    pre { background: #0f0f1a; border: 1px solid #222; border-radius: 4px; padding: 12px; font-size: 0.8em; line-height: 1.4; width: fit-content; max-height: 60vh; overflow: auto; }
+    canvas { background: #0f0f1a; border: 1px solid #222; border-radius: 4px; display: block; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Collatz Explorer</h1>
+  <div class="controls">
+    <label>n <input id="n" type="number" value="27" min="1" max="1000000"></label>
+    <button onclick="run()">Run</button>
+    <label>batch <input id="from" type="number" value="1" min="1" max="1000000" style="width:60px"> to <input id="to" type="number" value="100" min="1" max="1000000" style="width:60px"></label>
+    <button onclick="batch()">Batch</button>
+  </div>
+  <div class="info" id="info"></div>
+  <canvas id="chart" width="800" height="250"></canvas>
+  <pre id="out"></pre>
+
+  <script>
+    async function run() {
+      const n = document.getElementById("n").value;
+      const r = await (await fetch(`/trajectory?n=${n}`)).json();
+      if (r.error) { document.getElementById("out").textContent = r.error; return; }
+      document.getElementById("info").textContent = `start: ${r.start} |steps: ${r.steps} |peak: ${r.peak.toLocaleString()}`;
+      document.getElementById("out").textContent = r.sequence.join(" >");
+      drawChart(r.sequence);
+    }
+
+    async function batch() {
+      const from = document.getElementById("from").value;
+      const to = document.getElementById("to").value;
+      const r = await (await fetch(`/batch?from=${from}&to=${to}`)).json();
+      if (r.error) { document.getElementById("out").textContent = r.error; return; }
+      document.getElementById("info").textContent = `${r.length} numbers |longest: ${Math.max(...r.map(x=>x.steps))} steps |highest peak: ${Math.max(...r.map(x=>x.peak)).toLocaleString()}`;
+      document.getElementById("out").textContent = r.map(x => `${String(x.start).padStart(6)} >${x.steps} steps, peak ${x.peak}`).join("\n");
+      drawChart(r.map(x => x.steps));
+    }
+
+    function drawChart(data) {
+      const c = document.getElementById("chart");
+      const ctx = c.getContext("2d");
+      const max = Math.max(...data);
+      ctx.clearRect(0, 0, c.width, c.height);
+      const w = c.width / data.length;
+      data.forEach((v, i) => {
+        const h = (v / max) * (c.height - 20);
+        ctx.fillStyle = `hsl(${220 + (v/max)*60}, 50%, ${40 + (v/max)*30}%)`;
+        ctx.fillRect(i * w, c.height - h, Math.max(w - 0.5, 1), h);
+      });
+    }
+
+    run();
+  </script>
+</body>
+</html>

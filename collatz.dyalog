@@ -3,7 +3,8 @@
     ⎕IO←1
     DRC←⍬
     CRLF←⎕UCS 13 10
-    IndexHTML←''
+    MaxN←1000000
+    MaxBatch←500
 
     Trajectory←{⍵=1:,1 ⋄ ⍵,∇⊃(2|⍵)⌽(⍵÷2)(1+3×⍵)}
 
@@ -32,10 +33,16 @@
       :EndRepeat
     ∇
 
-    ∇ obj HandleRequest raw;tokens;path;query;params
+    ∇ obj HandleRequest raw;tokens;method;path;query;params
       tokens←' '(≠⊆⊢)⊃CRLF{(~⍺⍷⍵)⊆⍵}raw
+      method←⊃tokens
       (path query)←Split 2⊃tokens
-      ⎕←(⊃tokens),' ',path
+      ⎕←method,' ',path
+
+      :If ~method≡'GET'
+          obj Respond 405 'application/json' '{"error":"Method not allowed"}'
+          →0
+      :EndIf
 
       :Trap 0
           :Select path
@@ -56,10 +63,14 @@
       :EndTrap
     ∇
 
-    ∇ r←HandleTrajectory params;n;seq;ns
-      n←GetNum params 'n' 0
-      :If (n<1)∨n>1000000
-          r←400 'application/json' '{"error":"n must be 1-1000000"}'
+    ∇ r←HandleTrajectory params;n;seq;ns;ok
+      (ok n)←GetNum params 'n'
+      :If ~ok
+          r←400 'application/json' '{"error":"Missing or invalid n"}'
+          →0
+      :EndIf
+      :If (n<1)∨n>MaxN
+          r←400 'application/json' '{"error":"n must be 1-',(⍕MaxN),'"}'
           →0
       :EndIf
       seq←Trajectory n
@@ -71,15 +82,19 @@
       r←200 'application/json' (⎕JSON ns)
     ∇
 
-    ∇ r←HandleBatch params;from;to;rng;results;ns
-      from←GetNum params 'from' 0
-      to←GetNum params 'to' 0
-      :If (from<1)∨(to<from)∨(to>1000000)
+    ∇ r←HandleBatch params;from;to;rng;results;ns;okf;okt
+      (okf from)←GetNum params 'from'
+      (okt to)←GetNum params 'to'
+      :If ~okf∧okt
+          r←400 'application/json' '{"error":"Missing or invalid from/to"}'
+          →0
+      :EndIf
+      :If (from<1)∨(to<from)∨(to>MaxN)
           r←400 'application/json' '{"error":"Invalid range"}'
           →0
       :EndIf
-      :If 500<to-from
-          r←400 'application/json' '{"error":"Range limited to 500 numbers"}'
+      :If MaxBatch<(to-from)+1
+          r←400 'application/json' '{"error":"Range limited to ',(⍕MaxBatch),' numbers"}'
           →0
       :EndIf
       rng←(from-1)+⍳(to-from)+1
@@ -108,25 +123,27 @@
       params←↑kv
     ∇
 
-    ∇ v←GetNum(params key default);row;txt
-      :If 0=≢params ⋄ v←default ⋄ →0 ⋄ :EndIf
+    ∇ r←GetNum(params key);row;txt;mask;vals
+      r←0 0
+      :If 0=≢params ⋄ →0 ⋄ :EndIf
       row←(params[;1])⍳⊂,key
-      :If row>≢params ⋄ v←default
-      :Else
-          txt←⊃params[row;2]
-          :Trap 0 ⋄ v←⌊⊃⊃(//)⎕VFI txt ⋄ :Else ⋄ v←default ⋄ :EndTrap
-      :EndIf
+      :If row>≢params ⋄ →0 ⋄ :EndIf
+      txt←⊃params[row;2]
+      (mask vals)←⎕VFI txt
+      :If 0=≢mask ⋄ →0 ⋄ :EndIf
+      :If ⊃mask ⋄ r←1(⌊⊃vals) ⋄ :EndIf
     ∇
 
-    ∇ obj Respond(status ct body);hdr;reason
-      reason←(200 400 404 500⍳status)⊃'OK' 'Bad Request' 'Not Found' 'Internal Server Error' 'Unknown'
+    ∇ obj Respond(status ct body);hdr;reason;bytes
+      reason←(200 400 404 405 500⍳status)⊃'OK' 'Bad Request' 'Not Found' 'Method Not Allowed' 'Internal Server Error' 'Unknown'
+      bytes←'UTF-8'⎕UCS body
       hdr←'HTTP/1.1 ',(⍕status),' ',reason,CRLF
       hdr,←'Content-Type: ',ct,CRLF
-      hdr,←'Content-Length: ',(⍕≢⎕UCS body),CRLF
+      hdr,←'Content-Length: ',(⍕≢bytes),CRLF
       hdr,←'Access-Control-Allow-Origin: *',CRLF
       hdr,←'Connection: close',CRLF
       hdr,←CRLF
-      {}DRC.Send obj (hdr,body)
+      {}DRC.Send obj (('UTF-8'⎕UCS hdr),bytes)
     ∇
 
     ∇ Run
